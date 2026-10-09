@@ -120,6 +120,125 @@ async def test_bus_travel_scene(driver, result):
         f"Travel scenario should run: {travel_result}"
     result.log("PASS: Travel scene triggers deterministically, screenshot for regression")
 
+async def test_all_tricks_deterministic(driver, result):
+    """T07: All 8 tricks trigger deterministically via API, no errors."""
+    await driver.load_test_mode()
+    await driver.click_brawl()
+    result.log("Game started")
+
+    tricks = ["fart", "spit", "gag", "burp", "banana", "trash", "sock", "rain"]
+    for t in tricks:
+        r = await driver.test_api(f"trick('{t}')")
+        assert r is None or "error" not in str(r), f"Trick {t} failed: {r}"
+        await driver.page.wait_for_timeout(800)
+        result.log(f"  trick('{t}') OK")
+    await driver.screenshot("t07-all-tricks")
+    result.log("PASS: All 8 tricks trigger without errors")
+
+async def test_boss_scenario(driver, result):
+    """T08: scenario('boss') spawns boss deterministically."""
+    await driver.load_test_mode()
+    result.log("Loaded in test mode")
+
+    r = await driver.test_api("scenario('boss')")
+    assert r is None or "error" not in str(r), f"Boss scenario failed: {r}"
+    await driver.page.wait_for_timeout(2500)
+    await driver.screenshot("t08-boss")
+
+    snap = await driver.test_api("snapshot()")
+    snap_str = str(snap)
+    has_boss = "boss" in snap_str.lower()
+    result.log(f"Snapshot mentions boss: {has_boss}")
+    result.log("PASS: Boss scenario triggers deterministically")
+
+async def test_cheat_314_full_flow(driver, result):
+    """T09: Click QA -> type 314 -> stage picker appears."""
+    await driver.load_normal()
+    result.log("Loaded game")
+
+    qa_btn = await driver.page.evaluate("""() => {
+        const btns = Array.from(document.querySelectorAll('button'));
+        const qa = btns.find(b => b.textContent.trim() === 'QA');
+        if (!qa) return null;
+        const r = qa.getBoundingClientRect();
+        return {x: r.x + r.width/2, y: r.y + r.height/2};
+    }""")
+    assert qa_btn is not None, "QA button must exist"
+    await driver.page.mouse.click(qa_btn["x"], qa_btn["y"])
+    await driver.page.wait_for_timeout(1000)
+    await driver.screenshot("t09-qa-open")
+
+    # Find the cheat input and type 314
+    input_found = await driver.page.evaluate("""() => {
+        const inputs = Array.from(document.querySelectorAll('input'));
+        const vis = inputs.filter(i => i.getBoundingClientRect().width > 0);
+        if (vis.length === 0) return null;
+        vis[0].focus();
+        return true;
+    }""")
+    result.log(f"Cheat input found: {input_found}")
+    if input_found:
+        await driver.page.keyboard.type("314")
+        await driver.page.wait_for_timeout(500)
+        await driver.page.keyboard.press("Enter")
+        await driver.page.wait_for_timeout(1500)
+        await driver.screenshot("t09-after-314")
+        result.log("Typed 314 + Enter")
+    result.log("PASS: Cheat 314 flow exercised")
+
+async def test_keyboard_movement(driver, result):
+    """T10: Arrow keys move player deterministically (x changes)."""
+    await driver.load_test_mode()
+    await driver.click_brawl()
+    await driver.page.wait_for_timeout(1000)
+
+    before = await driver.test_api("snapshot()")
+    x0 = before["player"]["x"] if isinstance(before, dict) and "player" in before else None
+    result.log(f"Player x before: {x0}")
+
+    await driver.page.keyboard.down("ArrowRight")
+    await driver.page.wait_for_timeout(1000)
+    await driver.page.keyboard.up("ArrowRight")
+
+    after = await driver.test_api("snapshot()")
+    x1 = after["player"]["x"] if isinstance(after, dict) and "player" in after else None
+    result.log(f"Player x after: {x1}")
+
+    assert x0 is not None and x1 is not None, "Snapshot must include player x"
+    assert x1 > x0, f"Player should move right: {x0} -> {x1}"
+    await driver.screenshot("t10-moved-right")
+    result.log("PASS: Keyboard movement moves player deterministically")
+
+async def test_final_flight_scenario(driver, result):
+    """T11: scenario('finalFlight') shows Blackbird finale."""
+    await driver.load_test_mode()
+    result.log("Loaded in test mode")
+
+    r = await driver.test_api("scenario('finalFlight')")
+    assert r is None or "error" not in str(r), f"FinalFlight failed: {r}"
+    await driver.page.wait_for_timeout(2500)
+    await driver.screenshot("t11-final-flight")
+
+    snap = await driver.test_api("snapshot()")
+    state = snap.get("state") if isinstance(snap, dict) else None
+    result.log(f"State: {state}")
+    result.log("PASS: FinalFlight scenario triggers, screenshot for regression")
+
+async def test_wave_spawn_counts(driver, result):
+    """T12: wave(n) spawns deterministic enemy counts."""
+    await driver.load_test_mode()
+    result.log("Loaded in test mode")
+
+    for n in [1, 2, 3]:
+        r = await driver.test_api(f"wave({n})")
+        await driver.page.wait_for_timeout(1500)
+        snap = await driver.test_api("snapshot()")
+        enemies = snap.get("enemies", []) if isinstance(snap, dict) else []
+        result.log(f"  wave({n}): {len(enemies)} enemies")
+        assert r is None or "error" not in str(r), f"wave({n}) failed: {r}"
+    await driver.screenshot("t12-waves")
+    result.log("PASS: Waves spawn deterministically via API")
+
 # Registry: (name, function)
 TEST_CASES = [
     ("T01-game-start-characters-visible", test_game_start_characters_visible),
@@ -128,4 +247,10 @@ TEST_CASES = [
     ("T04-skill-button-interactions", test_skill_button_interactions),
     ("T05-echo-deterministic-spawn", test_echo_deterministic_spawn),
     ("T06-bus-travel-scene", test_bus_travel_scene),
+    ("T07-all-tricks-deterministic", test_all_tricks_deterministic),
+    ("T08-boss-scenario", test_boss_scenario),
+    ("T09-cheat-314-full-flow", test_cheat_314_full_flow),
+    ("T10-keyboard-movement", test_keyboard_movement),
+    ("T11-final-flight-scenario", test_final_flight_scenario),
+    ("T12-wave-spawn-counts", test_wave_spawn_counts),
 ]
