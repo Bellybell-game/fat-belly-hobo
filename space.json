@@ -1,0 +1,8 @@
+{
+  "entry": "index.html",
+  "managedCronJobs": [],
+  "name": "Fat Belly Hobo",
+  "platformVersion": 15,
+  "runtime": "static",
+  "slug": "space"
+}
